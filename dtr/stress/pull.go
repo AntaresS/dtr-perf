@@ -1,4 +1,4 @@
-package pull
+package stress
 
 import (
 	"bufio"
@@ -9,10 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
-	"github.com/docker/perfkit/dtr/stress/sharedutils"
+	"github.com/sirupsen/logrus"
 )
 
 type Job struct {
@@ -23,8 +22,7 @@ type Job struct {
 
 func StressPull(ctx context.Context, j *Job) error {
 
-	tag := j.Config.Pull.TagName
-
+	image := getImageName(j)
 	// parse the duration from Config file and time must be positive
 	if strings.Contains(j.Config.Pull.Duration, "-") {
 		return fmt.Errorf("duration must be positive")
@@ -35,7 +33,10 @@ func StressPull(ctx context.Context, j *Job) error {
 		logrus.Errorf("time conversion failed: %s", err.Error())
 		return err
 	}
-	client, err := sharedutils.MakeDockerClient("unix:///var/run/docker.sock", "", nil, j.Config.Username, j.Config.Password, j.Config.RefreshToken)
+	cli, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		return err
+	}
 	if err != nil {
 		return err
 	}
@@ -54,17 +55,23 @@ func StressPull(ctx context.Context, j *Job) error {
 			// thus add retries instead of returning failure immediately
 			isSuccess := false
 			for i := 0; i < 3; i++ {
-				logrus.Infof("excuting pulling test at %v for the %v try", time.Now(), i)
-				logrus.Infof("pulling %s/%s/%s:%s", j.Config.DTRURL, j.Config.Pull.Namespace, j.Config.Pull.RepoName, tag)
-				err = PullImage(ctx, j, client, tag)
+				logrus.Infof("excuting pulling test at %s for the %v try", time.Now(), i)
+				err = PullImage(ctx, j, cli, image)
 				if err != nil {
 					logrus.Errorf("pulling error: %s", err.Error())
 					//return err
 				} else {
-					logrus.Info("finished pulling test with SUCCESS at %v", time.Now())
+					logrus.Info("finished pulling test with SUCCESS at %s", time.Now())
+					time.Now().String()
 					isSuccess = true
 					break
 				}
+			}
+			_, removeErr := cli.ImageRemove(ctx, image, types.ImageRemoveOptions{Force: true, PruneChildren: true})
+			if removeErr != nil {
+				log.Printf("remove image %s failed: %s ", image, removeErr)
+			} else {
+				log.Printf("remove image %s succeeded", image)
 			}
 			if !isSuccess {
 				return err
@@ -73,28 +80,19 @@ func StressPull(ctx context.Context, j *Job) error {
 	}
 }
 
-func PullImage(ctx context.Context, j *Job, client client.APIClient, tag string) error {
+func PullImage(ctx context.Context, j *Job, cli client.APIClient, image string) error {
 
-	return PullImageWithDockerClient(ctx, j, client, tag)
+	return PullImageWithDockerClient(ctx, cli, j, image)
 }
 
-func PullImageWithDockerClient(ctx context.Context, j *Job, cli client.APIClient, tag string) error {
-	var image string
-	if j.Config.DTRURL != "" {
-		image = fmt.Sprintf("%s/%s/%s:%s", j.Config.DTRURL, j.Config.Pull.Namespace, j.Config.Pull.RepoName, tag)
-	} else {
-		if j.Config.Pull.Namespace != "" {
-			image = fmt.Sprintf("%s/%s:%s", j.Config.Pull.Namespace, j.Config.Pull.RepoName, tag)
-		} else {
-			image = fmt.Sprintf("%s:%s", j.Config.Pull.RepoName, tag)
-		}
-	}
+func PullImageWithDockerClient(ctx context.Context, cli client.APIClient, j *Job, image string) error {
 	logrus.WithField("image", image).Info("pulling image")
-	options := types.ImagePullOptions{
+	/*	options := types.ImagePullOptions{
 		RegistryAuth: sharedutils.MakeRegistryAuth(j.Config.Username, j.Config.Password, j.Config.RefreshToken),
-	}
+	}*/
 
-	progress, err := cli.ImagePull(ctx, image, options)
+	//progress, err := cli.ImagePull(ctx, image, options)
+	progress, err := cli.ImagePull(ctx, image, types.ImagePullOptions{})
 	if err != nil {
 		return err
 	}
@@ -112,14 +110,30 @@ func PullImageWithDockerClient(ctx context.Context, j *Job, cli client.APIClient
 		if msg.Error != nil {
 			return fmt.Errorf("failed to load %s: %s", image, msg.Error.Message)
 		}
-		// todo: consider hide those messages into debugging log
 		if msg.Progress != nil && msg.Progress.Total > 0 {
-			log.Printf("%s %s layer %s %0.2f%%", image, msg.ID, msg.Status, float64(msg.Progress.Current)/float64(msg.Progress.Total)*100)
+			fmt.Printf("\r%s %s layer %s %0.2f%%", image, msg.ID, msg.Status, float64(msg.Progress.Current)/float64(msg.Progress.Total)*100)
+			if msg.Progress.Current == msg.Progress.Total {
+				fmt.Println()
+			}
 		} else {
-			log.Printf("%s %s %s", image, msg.ID, msg.Status)
+			logrus.Debugf("%s %s %s", image, msg.ID, msg.Status)
 		}
 	}
 	return nil
+}
+
+func getImageName(j *Job) string {
+	var image string
+	if j.Config.DTRURL != "" {
+		image = fmt.Sprintf("%s/%s/%s:%s", j.Config.DTRURL, j.Config.Pull.Namespace, j.Config.Pull.RepoName, j.Config.Pull.TagName)
+	} else {
+		if j.Config.Pull.Namespace != "" {
+			image = fmt.Sprintf("%s/%s:%s", j.Config.Pull.Namespace, j.Config.Pull.RepoName, j.Config.Pull.TagName)
+		} else {
+			image = fmt.Sprintf("%s:%s", j.Config.Pull.RepoName, j.Config.Pull.TagName)
+		}
+	}
+	return image
 }
 
 // Types lifted from docker/docker/pkg/jsonmessage to avoid TTY dependencies

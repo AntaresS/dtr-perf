@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/docker/perfkit/dtr/cmd/pull"
@@ -16,5 +17,8 @@ func main() {
 		Flags:   []cli.Flag{},
 	}
 	app.Commands = append(app.Commands, pull.NewCommands()...)
-	app.Run(os.Args)
+	err := app.Run(os.Args)
+	if err != nil {
+		log.Fatal(err)
+	}
 }

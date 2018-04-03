@@ -2,10 +2,10 @@ package pull
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/docker/perfkit/dtr/stress/pull"
+	"github.com/docker/perfkit/dtr/stress"
 	"github.com/docker/perfkit/dtr/stress/sharedutils"
+	"github.com/sirupsen/logrus"
 	"gopkg.in/urfave/cli.v2"
 	"gopkg.in/yaml.v2"
 )
@@ -16,19 +16,22 @@ func NewCommands() []*cli.Command {
 			Name:  "pull",
 			Usage: "execute docker pull command continuously",
 			Action: func(c *cli.Context) error {
-				cfg := &pull.Config{}
+				if c.Bool("debug") {
+					logrus.SetLevel(logrus.DebugLevel)
+				}
+				cfg := &stress.Config{}
 				in, err := sharedutils.ReadConfigFile(c.String("file"))
 				if err != nil {
 					return err
 				}
-				fmt.Println(string(in))
 				err = yaml.Unmarshal(in, cfg)
-				fmt.Printf("%+v", *cfg)
-				j := pull.Job{
+				if err != nil {
+					return err
+				}
+				j := stress.Job{
 					Config: cfg,
 				}
-				return pull.StressPull(context.Background(), &j)
-				return nil
+				return stress.StressPull(context.Background(), &j)
 			},
 			Flags: []cli.Flag{
 				&cli.StringFlag{
@@ -36,6 +39,11 @@ func NewCommands() []*cli.Command {
 					Aliases: []string{"f"},
 					Usage:   "config file for pull simulation",
 					Value:   "",
+				}, &cli.BoolFlag{
+					Name:    "debug",
+					Aliases: []string{"d"},
+					Usage:   "debug mode",
+					Value:   false,
 				},
 			},
 		},

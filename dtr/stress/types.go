@@ -1,4 +1,4 @@
-package pull
+package stress
 
 type PushConfig struct {
 	Method    string

@@ -1,10 +1,10 @@
 dtrurl: 35.165.41.93:443
 dtrinsecuretls: true
-username: admin
-password: dockerEE2018
+username: xxx
+password: xxx
 pull:
     method: hostdaemon
     namespace: admin
     reponame: nginx
     tagname: latest
-    duration: 5s
+    duration: 15m 
